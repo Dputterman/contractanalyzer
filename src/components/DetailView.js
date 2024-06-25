@@ -1,19 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, Button, IconButton, TextField, Box, Typography } from '@mui/material';
-import Split from 'react-split'; // Importing the default export
+import Split from 'react-split';
 import { FiSend, FiArrowLeft } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import ReactMarkdown from 'react-markdown';
 import { format } from 'date-fns';
-import { openai } from '../LegalAnalyzerApp.js';
+import { openai, storage } from '../LegalAnalyzerApp';
+import { ref, getDownloadURL } from 'firebase/storage';
+import { Worker, Viewer } from '@react-pdf-viewer/core';
+import '@react-pdf-viewer/core/lib/styles/index.css';
+import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const ASSISTANT_ID = process.env.REACT_APP_OPENAI_ASSISTANT_ID;
 
 const DetailView = ({ onBack, assistantId, fileIds }) => {
   const [chatMessages, setChatMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
+  const [pdfUrl, setPdfUrl] = useState(null);
   const threadRef = useRef(null);
   const chatContainerRef = useRef(null);
 
@@ -95,6 +100,25 @@ const DetailView = ({ onBack, assistantId, fileIds }) => {
     }
   };
 
+  useEffect(() => {
+    const fetchPdfUrl = async () => {
+      try {
+        const fileRef = ref(storage, fileIds.fileBlobUrl);
+        console.log(`DetailView: fileRef = ${fileRef}`);
+        const url = await getDownloadURL(fileRef);
+        console.log(`DetailView: url = ${url}`);
+        setPdfUrl(url);
+      } catch (error) {
+        console.error('Error fetching PDF URL:', error);
+        toast.error('Failed to load PDF document');
+      }
+    };
+
+    if (fileIds && fileIds.fileBlobUrl) {
+      fetchPdfUrl();
+    }
+  }, [fileIds]);
+
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: '#f0f4f8' }}>
       <Box sx={{ bgcolor: '#ffffff', p: 2, borderBottom: '1px solid #e0e0e0' }}>
@@ -112,7 +136,15 @@ const DetailView = ({ onBack, assistantId, fileIds }) => {
       >
         <Box sx={{ p: 2, bgcolor: '#ffffff', borderRadius: 2, boxShadow: 1, m: 2, overflowY: 'auto' }}>
           <Typography variant="h5">Document View</Typography>
-          <Typography variant="body1">Document content will be displayed here.</Typography>
+          <Box sx={{ height: '100%', width: '100%' }}>
+            {pdfUrl ? (
+              <Worker workerUrl={`https://unpkg.com/pdfjs-dist@2.9.359/build/pdf.worker.min.js`}>
+                <Viewer fileUrl={pdfUrl} />
+              </Worker>
+            ) : (
+              <Typography variant="body1">Document content will be displayed here.</Typography>
+            )}
+          </Box>
         </Box>
 
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: '#ffffff', borderRadius: 2, boxShadow: 1, m: 2 }}>

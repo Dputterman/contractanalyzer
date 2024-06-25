@@ -25,7 +25,7 @@ const LegalAnalyzerApp = () => {
   const [isUploadReady, setIsUploadReady] = useState(false);
   const [assistant, setAssistant] = useState(null);
   const [documents, setDocuments] = useState([]);
-  const [externalInfo, setExternalInfo] = useState([]); // Define externalInfo
+  const [externalInfo, setExternalInfo] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [columnOrder, setColumnOrder] = useState([]);
@@ -57,7 +57,7 @@ const LegalAnalyzerApp = () => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setDocuments(data.documents || []);
-        setExternalInfo(data.externalInfo || []); // Load externalInfo
+        setExternalInfo(data.externalInfo || []);
         if (data.documents && data.documents.length > 0) {
           setColumnOrder(Object.keys(data.documents[0]));
         }
@@ -203,7 +203,7 @@ const LegalAnalyzerApp = () => {
         const { contractData, openaiId, fileBlobUrl } = await addDocument(file, i, files.length);
         newDocuments.push({ 
           filename: file.name, 
-          contractData: JSON.stringify(contractData)  // Stringify contractData
+          ...contractData  // Spread contractData fields
         });
         newExternalInfo.push({ openaiId, fileBlobUrl });
         setCurrentProgress(i + 1);
@@ -234,36 +234,26 @@ const LegalAnalyzerApp = () => {
 
   const columns = useMemo(() => {
     if (documents.length === 0) return [];
-    return [
-      {
-        accessorKey: 'filename',
-        header: 'Filename',
-        id: 'filename',
-        cell: ({ row }) => row.original.filename,
-        columnDef: { header: 'Filename' }
+
+    // Extract unique keys from all documents
+    const uniqueKeys = Array.from(new Set(documents.flatMap(doc => {
+      return Object.keys(doc);
+    })));
+
+    // Define columns dynamically based on unique keys
+    const dynamicColumns = uniqueKeys.map(key => ({
+      accessorKey: key,
+      header: key.replace(/_/g, ' '),
+      id: key,
+      cell: info => {
+        const value = info.getValue ? info.getValue() : null;
+        return typeof value === 'object' ? JSON.stringify(value) : value;
       },
-      {
-        accessorKey: 'contractData',
-        header: 'Contract Data',
-        id: 'contractData',
-        cell: ({ row }) => {
-          const data = row.original.contractData;
-          return typeof data === 'object' ? JSON.stringify(data) : data;
-        },
-        columnDef: { header: 'Contract Data' }
-      },
-      ...columnOrder.map(key => ({
-        accessorKey: key,
-        header: key.replace(/_/g, ' '),
-        id: key,
-        cell: info => {
-          const value = info.getValue ? info.getValue() : null;
-          return typeof value === 'object' ? JSON.stringify(value) : value;
-        },
-        columnDef: { header: key.replace(/_/g, ' ') }
-      }))
-    ];
-  }, [documents, columnOrder]);
+      columnDef: { header: key.replace(/_/g, ' ') }
+    }));
+
+    return dynamicColumns;
+  }, [documents]);
 
   const table = useReactTable({
     data: documents,
@@ -311,5 +301,7 @@ const LegalAnalyzerApp = () => {
     />
   );
 };
+
+export { storage };
 
 export default LegalAnalyzerApp;
