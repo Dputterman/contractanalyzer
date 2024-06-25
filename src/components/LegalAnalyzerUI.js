@@ -22,7 +22,7 @@ import { SortableContext, sortableKeyboardCoordinates, arrayMove, useSortable } 
 import { CSS } from '@dnd-kit/utilities';
 import { flexRender } from '@tanstack/react-table';
 import UploadDialog from './UploadDialog';
-import ProgressDialog from './ProgressDialog.js';
+import ProgressDialog from './ProgressDialog';
 
 const LegalAnalyzerUI = ({
   handleUpload,
@@ -45,7 +45,6 @@ const LegalAnalyzerUI = ({
   currentProgress = 0,
   totalFiles = 0
 }) => {
-
   const [hoveredRowId, setHoveredRowId] = useState(null);
   const [localColumnOrder, setLocalColumnOrder] = useState(initialColumnOrder);
 
@@ -58,6 +57,11 @@ const LegalAnalyzerUI = ({
     const columnIds = columns.map(column => column.id);
     setLocalColumnOrder(columnIds);
   }, [table]);
+
+  // Debugging: log the documents array
+  useEffect(() => {
+    console.log('Documents:', documents);
+  }, [documents]);
 
   const DraggableTableHeader = ({ header }) => {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: header.id });
@@ -238,4 +242,4 @@ const LegalAnalyzerUI = ({
   );
 };
 
-export default LegalAnalyzerUI;np
+export default LegalAnalyzerUI;

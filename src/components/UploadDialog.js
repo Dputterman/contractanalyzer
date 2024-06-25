@@ -26,22 +26,14 @@ const UploadDialog = ({ open, onClose, onUpload }) => {
 
   const onDrop = useCallback((acceptedFiles) => {
     console.log('Files dropped:', acceptedFiles);
-    setFiles(prev => {
-      const newFiles = [...prev, ...acceptedFiles];
-      console.log('Updated files state:', newFiles);
-      return newFiles;
-    });
+    setFiles(prev => [...prev, ...acceptedFiles]);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
 
   const handleRemoveFile = (index) => {
     console.log('Removing file at index:', index);
-    setFiles(prev => {
-      const newFiles = prev.filter((_, i) => i !== index);
-      console.log('Updated files state after removal:', newFiles);
-      return newFiles;
-    });
+    setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleUpload = () => {
@@ -51,8 +43,6 @@ const UploadDialog = ({ open, onClose, onUpload }) => {
     setFiles([]);
     onClose();
   };
-
-  console.log('Rendering UploadDialog. Current files:', files);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>

@@ -6,8 +6,12 @@ import LegalAnalyzerUI from './components/LegalAnalyzerUI';
 import DetailView from './components/DetailView';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { extractionPrompt } from './prompts/extractionPrompt.js';
+import { extractionPrompt } from './prompts/extractionPrompt';
 import { OpenAI } from 'openai';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+// Initialize Firebase Storage
+const storage = getStorage();
 
 const ASSISTANT_ID = process.env.REACT_APP_OPENAI_ASSISTANT_ID;
 const VECTOR_STORE_ID = process.env.REACT_APP_OPENAI_VECTOR_STORE_ID;
@@ -21,6 +25,7 @@ const LegalAnalyzerApp = () => {
   const [isUploadReady, setIsUploadReady] = useState(false);
   const [assistant, setAssistant] = useState(null);
   const [documents, setDocuments] = useState([]);
+  const [externalInfo, setExternalInfo] = useState([]); // Define externalInfo
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [columnOrder, setColumnOrder] = useState([]);
@@ -52,6 +57,7 @@ const LegalAnalyzerApp = () => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setDocuments(data.documents || []);
+        setExternalInfo(data.externalInfo || []); // Load externalInfo
         if (data.documents && data.documents.length > 0) {
           setColumnOrder(Object.keys(data.documents[0]));
         }
@@ -82,10 +88,11 @@ const LegalAnalyzerApp = () => {
     loadDocuments();
   }, [loadDocuments]);
 
-  const saveDocuments = async (docs, columns) => {
+  const saveDocuments = async (docs, externalInfo, columns) => {
     try {
       await setDoc(doc(db, 'legalAnalyzer', 'documents'), {
         documents: docs,
+        externalInfo: externalInfo,
         columnOrder: columns,
       });
       console.log('Documents saved successfully');
@@ -151,7 +158,16 @@ const LegalAnalyzerApp = () => {
       const messages = await openai.beta.threads.messages.list(thread.id);
       const assistantMessage = messages.data.find(m => m.role === 'assistant');
 
-      return assistantMessage.content[0].text.value;
+      const contractData = parseContractData(assistantMessage.content[0].text.value);
+
+      // Upload file blob to Firebase Storage
+      const storageRef = ref(storage, `files/${file.name}`);
+      await uploadBytes(storageRef, file);
+      const fileBlobUrl = await getDownloadURL(storageRef);
+
+      const openaiId = openaiFile.id;
+
+      return { contractData, openaiId, fileBlobUrl };
     } catch (error) {
       console.error('Error in addDocument:', error);
       throw error;
@@ -159,7 +175,6 @@ const LegalAnalyzerApp = () => {
   }, [cancelProcess]);
 
   const handleUpload = useCallback(async (files) => {
-    console.log("handleUpload started");
     if (!isUploadReady) {
       setError('Please wait for the assistant to be ready.');
       return;
@@ -169,49 +184,45 @@ const LegalAnalyzerApp = () => {
     setCancelProcess(false);
     setCurrentProgress(0);
     setTotalFiles(files.length);
-    console.log(`Processing ${files.length} files`);
 
     const existingFileNames = documents.map(doc => doc.filename);
     const newDocuments = [];
+    const newExternalInfo = [];
 
     for (let i = 0; i < files.length; i++) {
       if (cancelProcess) {
-        console.log("Process cancelled");
         break;
       }
 
       const file = files[i];
       if (existingFileNames.includes(file.name)) {
-        console.log(`Skipping existing file: ${file.name}`);
         continue;
       }
 
       try {
-        console.log(`Processing file ${i + 1}: ${file.name}`);
-        const content = await addDocument(file, i, files.length);
-        console.log(`File processed: ${file.name}`);
-        const contractData = parseContractData(content);
-        newDocuments.push({ filename: file.name, ...contractData });
+        const { contractData, openaiId, fileBlobUrl } = await addDocument(file, i, files.length);
+        newDocuments.push({ 
+          filename: file.name, 
+          contractData: JSON.stringify(contractData)  // Stringify contractData
+        });
+        newExternalInfo.push({ openaiId, fileBlobUrl });
         setCurrentProgress(i + 1);
       } catch (error) {
-        console.error(`Error processing file: ${file.name}`, error);
         setError(`Error processing file: ${file.name}`);
         break;
       }
     }
 
-    console.log(`Processed ${newDocuments.length} new documents`);
-
     const updatedDocuments = [...documents, ...newDocuments];
+    const updatedExternalInfo = [...externalInfo, ...newExternalInfo];
     if (updatedDocuments.length > 0 && columnOrder.length === 0) {
       setColumnOrder(Object.keys(updatedDocuments[0]));
     }
 
     try {
-      await saveDocuments(updatedDocuments, columnOrder);
+      await saveDocuments(updatedDocuments, updatedExternalInfo, columnOrder);
       await loadDocuments();
     } catch (error) {
-      console.error('Error during saveDocuments:', error);
       setError('Error saving documents. Please try again.');
     }
 
@@ -219,8 +230,7 @@ const LegalAnalyzerApp = () => {
     setCurrentProgress(0);
     setTotalFiles(0);
     setIsDialogOpen(false);
-    console.log("handleUpload completed");
-  }, [isUploadReady, documents, columnOrder, addDocument, saveDocuments, loadDocuments]);
+  }, [isUploadReady, documents, externalInfo, columnOrder, addDocument, saveDocuments, loadDocuments]);
 
   const columns = useMemo(() => {
     if (documents.length === 0) return [];
@@ -232,20 +242,29 @@ const LegalAnalyzerApp = () => {
         cell: ({ row }) => row.original.filename,
         columnDef: { header: 'Filename' }
       },
+      {
+        accessorKey: 'contractData',
+        header: 'Contract Data',
+        id: 'contractData',
+        cell: ({ row }) => {
+          const data = row.original.contractData;
+          return typeof data === 'object' ? JSON.stringify(data) : data;
+        },
+        columnDef: { header: 'Contract Data' }
+      },
       ...columnOrder.map(key => ({
         accessorKey: key,
         header: key.replace(/_/g, ' '),
         id: key,
         cell: info => {
-          return info.getValue ? info.getValue() : null;
+          const value = info.getValue ? info.getValue() : null;
+          return typeof value === 'object' ? JSON.stringify(value) : value;
         },
-        columnDef: {
-          header: key.replace(/_/g, ' '),
-        }
+        columnDef: { header: key.replace(/_/g, ' ') }
       }))
     ];
   }, [documents, columnOrder]);
-  
+
   const table = useReactTable({
     data: documents,
     columns,
@@ -268,8 +287,9 @@ const LegalAnalyzerApp = () => {
 
   return isDetailViewOpen ? (
     <DetailView 
-      fileContent={selectedDocumentContent}
       onBack={() => setIsDetailViewOpen(false)}
+      assistantId={ASSISTANT_ID}
+      fileIds={selectedDocumentContent}
     />
   ) : (
     <LegalAnalyzerUI
